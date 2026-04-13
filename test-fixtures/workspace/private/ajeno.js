@@ -1,0 +1,1 @@
+import {hola} from './hola2.js';

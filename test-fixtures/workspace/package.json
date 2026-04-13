@@ -1,4 +1,7 @@
 {
   "name": "fixture-workspace",
-  "type": "module"
+  "type": "module",
+  "imports": {
+    "#ext/*": "./public/*"
+  }
 }

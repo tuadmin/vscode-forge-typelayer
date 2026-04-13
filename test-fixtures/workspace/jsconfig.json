@@ -2,7 +2,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@math/*": ["private/math/*"]
+      "#ext/*": ["./public/*"],
+      "@app/*": ["./private/*"]
     }
   }
 }

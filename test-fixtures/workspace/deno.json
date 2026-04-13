@@ -1,5 +1,7 @@
 {
   "imports": {
-    "@std/": "jsr:@std/"
+    "@std/": "jsr:@std/",
+    "#ext/*": "./public/*",
+    "@app/*": "./private/*"
   }
 }

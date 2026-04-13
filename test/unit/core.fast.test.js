@@ -69,17 +69,18 @@ test('prependWatermark works correctly', () => {
 });
 
 ['ts', 'mts'].forEach(ext => {
-  test(`predictEmitPaths generates correct extensions for .${ext} and .f.${ext}`, () => {
-    // Normal cases
-    const resNormal = core.predictEmitPaths(`/src/index.${ext}`, `dist/index`, `/work`);
-    assert.ok(resNormal.jsPath.endsWith(`index.${ext.replace('ts', 'js')}`));
-
-    // Forge Lock cases
-    const resLocked = core.predictEmitPaths(`/src/myLib.f.${ext}`, `dist/myLib`, `/work`);
-    assert.ok(resLocked.jsPath.endsWith(`myLib.${ext.replace('ts', 'js')}`));
-
-    // Verify no duplicate .f. in the output
-    assert.ok(!resLocked.jsPath.includes('.f.'));
-    assert.ok(!resLocked.dtsPath.includes('.f.'));
+  ['.f.', '.forge.', '.source.'].forEach(suffixPrefix => {
+    const fullSuffix = `${suffixPrefix}${ext}`;
+    test(`predictEmitPaths generates correct extensions for ${fullSuffix}`, () => {
+      const lockSuffixes = ['.f.ts', '.forge.ts', '.source.ts', '.f.mts', '.forge.mts', '.source.mts'];
+      const resLocked = core.predictEmitPaths(`/src/myLib${fullSuffix}`, `dist/myLib`, `/work`, lockSuffixes);
+      
+      const expectedExt = ext.replace('ts', 'js');
+      assert.ok(resLocked.jsPath.endsWith(`myLib.${expectedExt}`), `Failed for ${fullSuffix}: ${resLocked.jsPath}`);
+      
+      // Verify no duplicate suffix in the output
+      assert.ok(!resLocked.jsPath.includes(suffixPrefix));
+      assert.ok(!resLocked.dtsPath.includes(suffixPrefix));
+    });
   });
 });

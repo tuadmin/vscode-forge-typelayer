@@ -2,7 +2,7 @@
   "name": "forge-typelayer",
   "displayName": "%ext.displayName%",
   "description": "%ext.description%",
-  "version": "1.0.1-alpha.4",
+  "version": "1.0.1-alpha.10",
   "publisher": "tuadmin",
   "icon": "icon.png",
   "engines": {
@@ -113,6 +113,21 @@
           "default": "forge-typelayer.entries.json",
           "description": "%cfg.entriesFile%"
         },
+        "forgeTypeLayer.lockSuffixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".f.ts",
+            ".forge.ts",
+            ".source.ts",
+            ".f.mts",
+            ".forge.mts",
+            ".source.mts"
+          ],
+          "description": "List of source file suffixes that trigger internal locking and artifact renaming."
+        },
         "forgeTypeLayer.addWatermark": {
           "type": "boolean",
           "default": true,
@@ -131,6 +146,7 @@
     "test:bun": "bun test test/unit/",
     "test:e2e": "node ./test/runTest.js",
     "test": "npm run test:fast && npm run test:bun && npm run test:e2e",
+    "dev:host": "node ./test/devHost.js",
     "compile": "node -e \"console.log(\\'No build step required for runtime JS extension.\\')\"",
     "package": "npx @vscode/vsce package",
     "publish:vsce": "npx @vscode/vsce publish",

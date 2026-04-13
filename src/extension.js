@@ -5,30 +5,89 @@ const core = require('./core');
 
 const pkg = require('../package.json');
 const isPreRelease = String(pkg.version || '').includes('-');
+let outputChannel;
+
 const Logger = {
-  debug: (...args) => { if (isPreRelease) console.log('[Forge TL Debug]', ...args); }
+  info: (msg) => { if (outputChannel) outputChannel.appendLine(`[INFO] ${msg}`); },
+  warn: (msg) => { if (outputChannel) outputChannel.appendLine(`[WARN] ${msg}`); },
+  error: (tag, err) => { if (outputChannel) outputChannel.appendLine(`[ERROR] ${tag}: ${err}`); console.error(`[Forge] ${tag}:`, err); },
+  debug: (tag, ...args) => { 
+    if (isPreRelease) {
+      if (outputChannel) outputChannel.appendLine(`[DEBUG] ${tag}: ${args.join(' ')}`);
+      console.log(`[Forge DBG] ${tag}:`, ...args); 
+    }
+  },
+  log: (msg) => Logger.info(msg)
 };
+
+const delay = ms => new Promise(res => setTimeout(res, ms));
 
 const MODE_KEY = 'forgeTypeLayer.mode';
 
+const FALLBACK_BUNDLE = {
+  "mode.off": "OFF",
+  "mode.manual": "MANUAL",
+  "mode.auto": "AUTO",
+  "status.bar.tooltip": "Forge TypeLayer mode",
+  "status.bar.ready": "Forge is ready to emit from this source.",
+  "status.bar.watching": "Forge is watching for saves.",
+  "msg.noActiveEditor": "No active editor.",
+  "msg.noWorkspaceFolder": "No workspace folder open.",
+  "msg.notDeclaredEntry": "Current file is not part of a declared entry.",
+  "msg.openPublicJs": "Open a public .js file first.",
+  "msg.modeChanged": "Forge TypeLayer mode: {0}",
+  "msg.runtimeInfo": "Runtime: {0} — {1}",
+  "msg.reconstructed": "Reconstructed draft created: {0}",
+  "msg.preflight": "Forge TypeLayer preflight: {0}",
+  "msg.lintBlocked": "Forge TypeLayer blocked emit: lint failed for {0}. {1}",
+  "msg.validationBlocked": "Forge TypeLayer blocked emit: validation failed for {0}. {1}",
+  "msg.tsBlocked": "Forge TypeLayer blocked emit: TypeScript diagnostics failed. {0}",
+  "msg.externalFallback": "External emit via {0} did not complete public output. Falling back to TypeScript API.",
+  "msg.emittedExternal": "Emitted with {0}: {1} and {2}",
+  "msg.emittedFallback": "Emitted with TypeScript API fallback: {0} and {1}"
+};
+
 function t(key, ...args) {
-  return vscode.l10n.t(key, ...args);
+  let message = vscode.l10n.t(key, ...args);
+  if (message === key && FALLBACK_BUNDLE[key]) {
+    message = FALLBACK_BUNDLE[key];
+    // Simple placeholder replacement for fallback
+    args.forEach((arg, i) => {
+      message = message.replace(`{${i}}`, arg);
+    });
+  }
+  return message;
 }
 
 function activate(context) {
+  outputChannel = vscode.window.createOutputChannel("Forge TypeLayer");
+  context.subscriptions.push(outputChannel);
+  
+  Logger.log("Forge TypeLayer activated. Ready to forge.");
+
+  // Watch for project config changes to clear alias cache
+  const configWatcher = vscode.workspace.createFileSystemWatcher('**/{tsconfig,jsconfig,deno,import_map}.json');
+  configWatcher.onDidChange(() => projectContextCache.clear());
+  configWatcher.onDidCreate(() => projectContextCache.clear());
+  configWatcher.onDidDelete(() => projectContextCache.clear());
+  context.subscriptions.push(configWatcher);
+
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusBar.command = 'forgeTypeLayer.selectMode';
   context.subscriptions.push(statusBar);
-  ensureInitialMode(context)
-    .then(() => updateStatusBar(context, statusBar))
-    .catch(err => Logger.debug('Critical: Failed to hydrate initial mode:', err));
+  const updateUI = () => updateStatusBar(context, statusBar);
+
+  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateUI));
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+    if (e.affectsConfiguration('forgeTypeLayer')) updateUI();
+  }));
 
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(async (document) => {
     if (getMode(context) !== 'auto') return;
     const owner = await resolveOwningEntry(document);
     if (!owner) return;
     await emitEntry(owner, context, false);
-    updateStatusBar(context, statusBar);
+    updateUI();
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('forgeTypeLayer.toggleMode', async () => {
@@ -56,7 +115,7 @@ function activate(context) {
     if (!editor) return vscode.window.showWarningMessage(t('msg.noActiveEditor'));
     const owner = await resolveOwningEntry(editor.document);
     if (!owner) return vscode.window.showWarningMessage(t('msg.notDeclaredEntry'));
-    await emitEntry(owner, context, true);
+    await runQueuedEmit(owner, context, true);
     updateStatusBar(context, statusBar);
   }));
 
@@ -165,9 +224,25 @@ function getMode(context) {
 
 function updateStatusBar(context, statusBar) {
   const mode = getMode(context);
-  const icon = mode === 'auto' ? '$(sync)' : mode === 'manual' ? '$(tools)' : '$(circle-slash)';
-  statusBar.text = `${icon} Forge TypeLayer: ${mode.toUpperCase()}`;
-  statusBar.tooltip = t('status.bar.tooltip');
+  if (mode === 'off') {
+    statusBar.hide();
+    return;
+  }
+
+  const editor = vscode.window.activeTextEditor;
+  const config = vscode.workspace.getConfiguration('forgeTypeLayer', editor?.document);
+  const lockSuffixes = config.get('lockSuffixes', ['.f.ts', '.forge.ts', '.source.ts', '.f.mts', '.forge.mts', '.source.mts']);
+  
+  let detectedSuffix = null;
+  if (editor) {
+    const fileName = editor.document.fileName;
+    detectedSuffix = lockSuffixes.find(s => fileName.endsWith(s));
+  }
+
+  const indicator = detectedSuffix ? `<${detectedSuffix.startsWith('.') ? detectedSuffix.slice(1) : detectedSuffix}>` : 'TypeLayer';
+  
+  statusBar.text = `Forge ${indicator} [${mode.toUpperCase()}]`;
+  statusBar.tooltip = detectedSuffix ? t('status.bar.ready') : t('status.bar.watching');
   statusBar.show();
 }
 
@@ -175,7 +250,13 @@ async function resolveOwningEntry(document) {
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
   if (!workspaceFolder) return null;
   const config = vscode.workspace.getConfiguration('forgeTypeLayer', document);
-  const owner = core.resolveOwningEntryByFile(workspaceFolder.uri.fsPath, config.get('entriesFile', 'forge-typelayer.entries.json'), document.fileName);
+  const lockSuffixes = config.get('lockSuffixes', ['.f.ts']);
+  const owner = core.resolveOwningEntryByFile(
+    workspaceFolder.uri.fsPath, 
+    config.get('entriesFile', 'forge-typelayer.entries.json'), 
+    document.fileName,
+    lockSuffixes
+  );
   if (!owner) return null;
   return { workspaceFolder, ...owner };
 }
@@ -207,8 +288,48 @@ function resolveTypescript(workspaceFolder, document) {
   }
 }
 
+const projectContextCache = new Map();
+const runningTasks = new Map();
+const pendingTasks = new Map();
+
+async function getProjectContext(workspaceFolderPath) {
+  if (projectContextCache.has(workspaceFolderPath)) {
+    return projectContextCache.get(workspaceFolderPath);
+  }
+  const context = core.extractAliases(workspaceFolderPath);
+  projectContextCache.set(workspaceFolderPath, context);
+  return context;
+}
+
+/**
+ * Ensures only one emission task runs at a time per file.
+ */
+async function runQueuedEmit(owner, context, notify) {
+  const entryAbs = owner.entryAbs;
+  if (runningTasks.get(entryAbs)) {
+    pendingTasks.set(entryAbs, { owner, context, notify });
+    return;
+  }
+
+  runningTasks.set(entryAbs, true);
+  try {
+    await emitEntry(owner, context, notify);
+  } catch (err) {
+    Logger.error('Queue Task Error', err);
+  } finally {
+    runningTasks.set(entryAbs, false);
+    const pending = pendingTasks.get(entryAbs);
+    if (pending) {
+      pendingTasks.delete(entryAbs);
+      // Brief delay to allow FS events to settle before next run
+      setTimeout(() => runQueuedEmit(pending.owner, pending.context, pending.notify), 50);
+    }
+  }
+}
+
 async function emitEntry(owner, context, notify) {
-  const fakeDocument = { uri: vscode.Uri.file(owner.entryAbs), fileName: owner.entryAbs };
+  if (getMode(context) === 'off') return;
+  const fakeDocument = { uri: vscode.Uri.file(owner.entryAbs), fileName: owner.entryAbs, isClosed: false };
   const config = vscode.workspace.getConfiguration('forgeTypeLayer', fakeDocument);
   const runtime = core.resolveRuntimePreference({ workspacePath: owner.workspaceFolder.uri.fsPath, preferredRuntime: config.get('preferredRuntime', 'auto') });
   const preflight = core.preflightWorkspaceChecks(owner.workspaceFolder.uri.fsPath, runtime.runtime, config.get('entriesFile', 'forge-typelayer.entries.json'));
@@ -237,40 +358,144 @@ async function emitEntry(owner, context, notify) {
     }
   }
 
-  const paths = core.predictEmitPaths(owner.entryAbs, owner.outBaseRel, owner.workspaceFolder.uri.fsPath);
-  fs.mkdirSync(paths.outDir, { recursive: true });
-
-  const command = core.buildRuntimeCommand(runtime.runtime, {
+  const lockSuffixes = config.get('lockSuffixes', ['.f.ts']);
+  const paths = core.predictEmitPaths(owner.entryAbs, owner.outBaseRel, owner.workspaceFolder.uri.fsPath, lockSuffixes);
+  
+  // Shadow Build Isolation: Use a hidden temp folder for emission
+  const shadowBase = path.join(owner.workspaceFolder.uri.fsPath, '.vscode', 'forge-typelayer', 'shadow');
+  const entryHash = Buffer.from(owner.entryAbs).toString('hex').slice(-12);
+  const shadowDir = path.join(shadowBase, entryHash);
+  
+  const projectContext = await getProjectContext(owner.workspaceFolder.uri.fsPath);
+  let command = core.buildRuntimeCommand(runtime.runtime, {
     workspacePath: owner.workspaceFolder.uri.fsPath,
     entryAbs: owner.entryAbs,
     outBaseAbs: path.resolve(owner.workspaceFolder.uri.fsPath, owner.outBaseRel),
-    config: { target: config.get('target', 'ES2022'), removeComments: config.get('removeComments', false) }
+    config: { 
+      target: config.get('target', 'ES2022'), 
+      removeComments: config.get('removeComments', false),
+      outDir: shadowDir, // REDIRECT to shadow
+      rootDir: owner.workspaceFolder.uri.fsPath,
+      entryFile: owner.entryAbs
+    }
   });
+
+  // If using Bun/TSC and aliases are present, switch to Synthetic Config via -p
+  if (Object.keys(projectContext.paths).length > 0 && (runtime.runtime === 'tsc' || runtime.runtime === 'bun')) {
+    const syntheticConfig = core.buildSyntheticConfig(owner.workspaceFolder.uri.fsPath, projectContext, {
+      target: config.get('target', 'ES2022'),
+      removeComments: config.get('removeComments', false),
+      outDir: shadowDir,
+      rootDir: owner.workspaceFolder.uri.fsPath,
+      entryFile: owner.entryAbs
+    });
+    const configPath = core.buildSyntheticConfigPath(owner.workspaceFolder.uri.fsPath);
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(configPath)));
+      const configStr = JSON.stringify(syntheticConfig, null, 2);
+      await vscode.workspace.fs.writeFile(vscode.Uri.file(configPath), Buffer.from(configStr, 'utf8'));
+      
+      const tscArgs = ['-p', configPath];
+      if (runtime.runtime === 'tsc') {
+        const tscPath = core.getLocalTscPath(owner.workspaceFolder.uri.fsPath);
+        command = { command: fs.existsSync(tscPath) ? tscPath : 'tsc', args: tscArgs, mode: 'external' };
+      } else {
+        command = { command: 'bunx', args: ['tsc', ...tscArgs], mode: 'external' };
+      }
+    } catch (e) {
+      Logger.error('Synthetic Config Error', e);
+    }
+  }
+
+  // Ensure shadow directory and specific sub-emit directory exist and are clean
+  try {
+    const sourceDir = path.dirname(owner.entryAbs);
+    const relDir = path.relative(owner.workspaceFolder.uri.fsPath, sourceDir);
+    const shadowEmitDir = path.join(shadowDir, relDir);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(shadowEmitDir));
+  } catch {}
 
   const addWatermark = config.get('addWatermark', true);
 
   if (command.mode !== 'api' && command.command) {
-    Logger.debug('Executing external compiler:', `${command.command} ${command.args.join(' ')}`);
+    Logger.log(`Executing external compiler (${runtime.runtime}): ${command.command} ${command.args.join(' ')}`);
     const result = core.runExternalCommand(command.command, command.args, owner.workspaceFolder.uri.fsPath);
-    Logger.debug('External command result:', result.ok, 'Status:', result.status, 'Error:', result.stderr);
+    
+    if (result.stdout) outputChannel.appendLine(`[TSC STDOUT] ${result.stdout}`);
+    if (result.stderr) outputChannel.appendLine(`[TSC STDERR] ${result.stderr}`);
 
-    // Si TS corrió pero falló con errores de tipado, status es 1 o 2. Si falló por no encontrar el binario, code es ENOENT.
-    const executedSuccessfully = result.ok || result.status > 0;
+    const executedSuccessfully = result.ok || (result.status && result.status > 0);
 
     if (executedSuccessfully) {
-      if (owner.entryAbs.match(/\.f\.(ts|mts)$/i)) {
-        const rawPaths = core.predictEmitPaths(owner.entryAbs, owner.outBaseRel, owner.workspaceFolder.uri.fsPath, true);
-        Logger.debug('Target locked output is:', paths.jsPath, 'Exists raw JS?', fs.existsSync(rawPaths.jsPath));
-        if (fs.existsSync(rawPaths.jsPath)) fs.renameSync(rawPaths.jsPath, paths.jsPath);
-        if (fs.existsSync(rawPaths.dtsPath)) fs.renameSync(rawPaths.dtsPath, paths.dtsPath);
+      // Surgical Extraction: Move from shadow to real outDir
+      try {
+        const sourceDir = path.dirname(owner.entryAbs);
+        const relDir = path.relative(owner.workspaceFolder.uri.fsPath, sourceDir);
+        const shadowEmitDir = path.join(shadowDir, relDir);
+        
+        // Optional Polyglot Bundling (only for JS)
+        const bundlerCmd = core.getBundlerCommand(runtime.runtime, owner.entryAbs, path.join(shadowEmitDir, path.basename(paths.jsPath)), projectContext);
+        let wasBundled = false;
+        if (bundlerCmd) {
+          const bundleResult = core.runExternalCommand(bundlerCmd.command, bundlerCmd.args, owner.workspaceFolder.uri.fsPath);
+          if (bundleResult.ok) {
+            wasBundled = true;
+            Logger.debug('Bundler', `Inlined private helpers via ${runtime.runtime} build.`);
+          }
+        }
+
+        let shadowEmitDir = path.join(shadowDir, relDir);
+        
+        let shadowFiles = [];
+        try {
+          shadowFiles = await vscode.workspace.fs.readDirectory(vscode.Uri.file(shadowEmitDir));
+        } catch (e) {
+          // Fallback: If subfolder doesn't exist, try reading from shadow base (flattened output)
+          Logger.debug('Extraction', `Subfolder ${relDir} not found in shadow, trying base shadowDir.`);
+          shadowEmitDir = shadowDir;
+          shadowFiles = await vscode.workspace.fs.readDirectory(vscode.Uri.file(shadowEmitDir));
+        }
+
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(paths.outDir));
+
+        for (const [name, type] of shadowFiles) {
+          if (type !== vscode.FileType.File) continue;
+          
+          const isMain = name.startsWith(path.basename(owner.entryAbs).replace(/\.(ts|mts)$/, ''));
+          const isInternal = name.startsWith('_');
+          
+          if (isMain || isInternal) {
+            // IF bundled, skip moving the separate private .js files (keep only .d.ts)
+            if (wasBundled && isInternal && name.endsWith('.js')) continue;
+
+            // Important: Use the effectively detected shadowEmitDir (either the sub-path or the base)
+            const shadowFileAbs = path.join(shadowEmitDir, name);
+            let finalName = name;
+            
+            const matchedSuffix = lockSuffixes.find(s => name.includes(s.replace('.ts', '')));
+            if (matchedSuffix) {
+              finalName = name.replace(matchedSuffix.replace('.ts', ''), '');
+            }
+
+            const finalTargetAbs = path.join(paths.outDir, finalName);
+            await delay(50);
+            await vscode.workspace.fs.copy(vscode.Uri.file(shadowFileAbs), vscode.Uri.file(finalTargetAbs), { overwrite: true });
+
+            if (addWatermark && finalName.match(/\.(js|mjs|d\.ts|d\.mts)$/)) {
+              const jsRelSource = path.relative(path.dirname(finalTargetAbs), owner.entryAbs).replace(/\\/g, '/');
+              const safePath = (jsRelSource.startsWith('.') || jsRelSource.startsWith('/')) ? jsRelSource : `./${jsRelSource}`;
+              const contentBuf = await vscode.workspace.fs.readFile(vscode.Uri.file(finalTargetAbs));
+              const watermarked = core.prependWatermark(Buffer.from(contentBuf).toString('utf8'), safePath);
+              await vscode.workspace.fs.writeFile(vscode.Uri.file(finalTargetAbs), Buffer.from(watermarked, 'utf8'));
+            }
+          }
+        }
+        
+        await vscode.workspace.fs.delete(vscode.Uri.file(shadowDir), { recursive: true, useTrash: false });
+      } catch (err) {
+        Logger.error('Surgical Extraction Error', err);
       }
 
-      if (addWatermark) {
-        const jsRelSource = path.relative(path.dirname(paths.jsPath), owner.entryAbs).replace(/\\/g, '/');
-        const dtsRelSource = path.relative(path.dirname(paths.dtsPath), owner.entryAbs).replace(/\\/g, '/');
-        if (fs.existsSync(paths.jsPath)) fs.writeFileSync(paths.jsPath, core.prependWatermark(fs.readFileSync(paths.jsPath, 'utf8'), jsRelSource), 'utf8');
-        if (fs.existsSync(paths.dtsPath)) fs.writeFileSync(paths.dtsPath, core.prependWatermark(fs.readFileSync(paths.dtsPath, 'utf8'), dtsRelSource), 'utf8');
-      }
 
       let warnMissing = '';
       if (!fs.existsSync(paths.dtsPath)) warnMissing = ' (Declarations skipped)';
@@ -327,15 +552,14 @@ async function emitEntry(owner, context, notify) {
 
 function buildCompilerOptions(ts, config, entryAbs) {
   const targetMap = { ES2018: ts.ScriptTarget.ES2018, ES2020: ts.ScriptTarget.ES2020, ES2022: ts.ScriptTarget.ES2022, ESNext: ts.ScriptTarget.ESNext };
-  const isMts = entryAbs.endsWith('.mts');
   return {
     target: targetMap[config.get('target', 'ES2022')] || ts.ScriptTarget.ES2022,
-    module: isMts ? ts.ModuleKind.ES2022 : ts.ModuleKind.CommonJS,
+    module: ts.ModuleKind.NodeNext,
     declaration: true,
     emitDeclarationOnly: false,
     noEmitOnError: true,
     removeComments: !!config.get('removeComments', false),
-    moduleResolution: isMts ? ts.ModuleResolutionKind.Bundler : ts.ModuleResolutionKind.NodeJs,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
     rewriteRelativeImportExtensions: true,
     esModuleInterop: true,
     allowJs: true,

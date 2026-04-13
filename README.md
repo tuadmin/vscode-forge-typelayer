@@ -4,7 +4,7 @@
 
 </div>
 
-# Forge TypeLayer v1.0.0
+# Forge TypeLayer v1.0.1
 
 **The Pragmatic Switch for the Real-World Engineer.**
 
@@ -64,24 +64,17 @@ basic projects again.
 
 ## ⚙️ How it works
 
-Create your source file (e.g., `foo.mts` or `foo.f.ts`) as the primary source of
-truth. When you save (or trigger the command), Forge TypeLayer automatically
-constructs cleanly matched artifacts:
+Create your source file (e.g., `auth.forge.ts` or `api.source.mts`) as the primary source of truth. When you save (or trigger the command), Forge TypeLayer automatically constructs cleanly matched artifacts:
 
-**For Modern ESM (`foo.mts`):**
+**Supported Conventions:**
+- **Modern ESM (`.mts`):** Emits `.mjs` and `.d.mts`.
+- **The Forge Lock (.forge.ts / .source.ts):** Preferred conventions that avoid editor naming conflicts. Emits clean `.js` and `.d.ts` pairs.
+- **Legacy Lock (.f.ts):** Still supported for backward compatibility.
 
-1. `foo.mjs`: The raw ES Module logic layer, stripped of types.
-2. `foo.d.mts`: The type layer for strictly exporting ESM definitions.
+> [!TIP]
+> **Pro Tip:** We highly recommend using `.forge.ts` or `.source.ts`. These descriptive suffixes help the TypeScript compiler distinguish between your "Source of Truth" and the generated artifacts, preventing "Was also declared here" editor errors.
 
-**For The Forge Lock (`foo.f.ts`):**
-
-1. `foo.js`: The raw standard logic layer.
-2. `foo.d.ts`: Standard JS type definitions. _(Notice how the `.f.` lock is
-   cleanly stripped from the output!)_
-
-This enables consumers to directly import pure JavaScript while VS Code
-maintains a flawless intellisense experience using the adjacent definition
-files.
+This enables consumers to directly import pure JavaScript while VS Code maintains a flawless intellisense experience using the adjacent definition files.
 
 ---
 

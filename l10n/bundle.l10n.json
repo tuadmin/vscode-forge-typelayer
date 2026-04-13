@@ -3,6 +3,8 @@
   "mode.manual": "MANUAL",
   "mode.auto": "AUTO",
   "status.bar.tooltip": "Forge TypeLayer mode",
+  "status.bar.ready": "Forge is ready to emit from this source.",
+  "status.bar.watching": "Forge is watching for saves.",
   "msg.noActiveEditor": "No active editor.",
   "msg.noWorkspaceFolder": "No workspace folder open.",
   "msg.notDeclaredEntry": "Current file is not part of a declared entry.",
@@ -23,5 +25,8 @@
   "doctor.runtime": "Selected runtime: {0}",
   "doctor.lint": "Lint strategy: {0}",
   "doctor.manifest": "Manifest file: {0}",
-  "doctor.hints": "Detected hints: {0}"
+  "doctor.hints": "Detected hints: {0}",
+  "status.bar.suffix.forge": "forge.ts",
+  "status.bar.suffix.source": "source.ts",
+  "status.bar.suffix.f": "f.ts"
 }

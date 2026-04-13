@@ -3,6 +3,8 @@
   "mode.manual": "MANUAL",
   "mode.auto": "AUTO",
   "status.bar.tooltip": "Modo de Forge TypeLayer",
+  "status.bar.ready": "Forge está listo para emitir desde esta fuente.",
+  "status.bar.watching": "Forge está observando cambios.",
   "msg.noActiveEditor": "No hay un editor activo.",
   "msg.noWorkspaceFolder": "No hay una carpeta de workspace abierta.",
   "msg.notDeclaredEntry": "El archivo actual no forma parte de un entrypoint declarado.",
@@ -23,5 +25,8 @@
   "doctor.runtime": "Runtime seleccionado: {0}",
   "doctor.lint": "Estrategia de lint: {0}",
   "doctor.manifest": "Archivo de manifiesto: {0}",
-  "doctor.hints": "Señales detectadas: {0}"
+  "doctor.hints": "Señales detectadas: {0}",
+  "status.bar.suffix.forge": "forge.ts",
+  "status.bar.suffix.source": "source.ts",
+  "status.bar.suffix.f": "f.ts"
 }
