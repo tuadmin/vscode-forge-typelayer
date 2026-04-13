@@ -1,0 +1,15 @@
+.vscode-test/
+.vscode/**
+.github/**
+.vsce
+.gitignore
+.npmrc
+test/**
+test-fixtures/**
+openspec/**
+task.md
+implementation_plan.md
+walkthrough.md
+*.vsix
+*.*.log
+node_modules/

@@ -1,0 +1,21 @@
+{
+  "ext.displayName": "Forge TypeLayer",
+  "ext.description": "Autoría TS privada y publicación pública de JS + d.ts, con validación previa por lint y estrategias de emisión según runtime.",
+  "cmd.toggleMode": "Forge TypeLayer: Alternar modo",
+  "cmd.selectMode": "Forge TypeLayer: Seleccionar modo",
+  "cmd.emitCurrentFile": "Forge TypeLayer: Emitir archivo actual",
+  "cmd.reconstruct": "Forge TypeLayer: Reconstruir fuente desde JS + d.ts",
+  "cmd.showSpec": "Forge TypeLayer: Abrir especificación interna",
+  "cmd.showRuntimeInfo": "Forge TypeLayer: Mostrar info de runtime/compilador",
+  "cmd.doctorWorkspace": "Forge TypeLayer: Diagnosticar workspace",
+  "cfg.title": "Forge TypeLayer",
+  "cfg.defaultMode": "Modo inicial del workspace.",
+  "cfg.showNotifications": "Muestra notificaciones al emitir o fallar.",
+  "cfg.useWorkspaceTypescript": "Usa TypeScript del workspace si existe; si no, usa el de la extensión.",
+  "cfg.preferredRuntime": "Runtime/binario preferido para la emisión.",
+  "cfg.preLint": "Ejecuta lint/validación antes de emitir y cancela si hay quejas.",
+  "cfg.removeComments": "Quita comentarios del JS emitido.",
+  "cfg.target": "Versión objetivo de JavaScript.",
+  "cfg.entriesFile": "Archivo manifiesto del workspace que define entrypoints públicos y salidas.",
+  "cfg.reconstructSuffix": "Sufijo usado al reconstruir fuente privada desde JS + d.ts."
+}

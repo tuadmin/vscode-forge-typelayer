@@ -1,0 +1,73 @@
+name: Release and Publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    if: github.event.base_ref == 'refs/heads/main' || github.event.base_ref == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: vx.x.x
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Show tool versions
+        run: |
+          node --version
+          npm --version
+          bun --version
+          deno --version
+          npx tsc --version
+
+      - name: Run tests before packaging
+        run: xvfb-run -a npm test
+
+      - name: Package VSIX
+        run: npx vsce package
+
+      - name: Resolve VSIX path
+        id: vsix
+        run: |
+          FILE=$(ls -1 *.vsix | head -n 1)
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.vsix.outputs.file }}
+          generate_release_notes: true
+
+      - name: Publish to Visual Studio Marketplace
+        if: ${{ secrets.VSCE_PAT != '' }}
+        run: npx vsce publish --packagePath "${{ steps.vsix.outputs.file }}"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        if: ${{ secrets.OVSX_PAT != '' }}
+        run: npx ovsx publish "${{ steps.vsix.outputs.file }}" -p "${{ secrets.OVSX_PAT }}"

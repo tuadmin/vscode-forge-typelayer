@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "@std/": "jsr:@std/"
+  }
+}
