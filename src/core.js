@@ -18,15 +18,13 @@ function isInternalSubModule(filePath, entryDir) {
 }
 
 /**
- * Returns a bundler command ( Bun build / Deno bundle ) if supported by the runtime.
+ * Returns a bundler command for batch processing ( Bun build ) if supported by the runtime.
  */
-function getBundlerCommand(runtime, entryAbs, outAbs, projectContext = {}) {
+function buildBatchBundlerCommand(runtime, filesAbs, outDir, projectContext = {}) {
   const { paths = {} } = projectContext;
   
-  // Create externalization flags for all aliases
   const externalFlags = [];
   for (const alias in paths) {
-    // Bun/Deno handle '*' differently, but usually the root alias is what matters
     const cleanAlias = alias.replace(/\*$/, '');
     if (cleanAlias) externalFlags.push(cleanAlias);
   }
@@ -35,26 +33,20 @@ function getBundlerCommand(runtime, entryAbs, outAbs, projectContext = {}) {
     return {
       command: 'bun',
       args: [
-        'build', entryAbs, 
-        '--outfile', outAbs, 
+        'build', 
+        ...filesAbs,
+        '--outdir', outDir, 
         '--target', 'node',
-        // Externalize all project aliases
         ...externalFlags.flatMap(f => ['--external', f]),
-        // Externalize parents to avoid inlining shared helpers
-        '--external', '../*'
+        '--external', '../*' // Prevent inlining shared parents
       ],
       mode: 'external'
     };
   }
-  if (runtime === 'deno') {
-    // Note: Deno bundle is simpler but less configurable via CLI for selective externalization
-    // Usually respects import maps.
-    return {
-      command: 'deno',
-      args: ['bundle', entryAbs, outAbs],
-      mode: 'external'
-    };
-  }
+  
+  // Deno bundle does not natively support batching multiple entrypoints to a directory in a single command.
+  // It handles single files. We will fallback to TSC mode for Deno batching if required, 
+  // or handle sequential bundling in the orchestrator if they want bundling over performance.
   return null;
 }
 
@@ -240,12 +232,11 @@ function buildSyntheticConfig(workspacePath, projectContext, options = {}) {
       emitDeclarationOnly: false,
       baseUrl: baseUrl || '.',
       paths: paths || {},
-      // Inhibit picking up the workspace tsconfig.json to avoid collisions
       ignoreConfig: true,
       outDir: options.outDir || '.',
       rootDir: options.rootDir || workspacePath
     },
-    files: options.entryFile ? [options.entryFile] : []
+    files: Array.isArray(options.entryFiles) ? options.entryFiles : (options.entryFile ? [options.entryFile] : [])
   };
 }
 
@@ -253,16 +244,18 @@ function buildSyntheticConfigPath(workspacePath) {
   return path.join(workspacePath, '.vscode', 'forge-typelayer.tsconfig.json');
 }
 
-function buildRuntimeCommand(runtime, ctx) {
-  const { workspacePath, entryAbs, outBaseAbs, config } = ctx;
-  const outDir = config.outDir || path.dirname(outBaseAbs);
-  const rootDir = config.rootDir || path.dirname(entryAbs);
+function buildBatchTscCommand(runtime, ctx) {
+  const { workspacePath, filesAbs, config, hints } = ctx;
+  const outDir = config.outDir;
+  const rootDir = config.rootDir || workspacePath;
   const target = config.target || 'ES2022';
   const removeComments = !!config.removeComments;
+  
+  const emitDeclOnly = config.emitDeclarationOnly === true;
+  
   const commonArgs = [
-    entryAbs,
     '--declaration',
-    '--emitDeclarationOnly', 'false',
+    '--emitDeclarationOnly', String(emitDeclOnly),
     '--outDir', outDir,
     '--rootDir', rootDir,
     '--target', target,
@@ -273,6 +266,12 @@ function buildRuntimeCommand(runtime, ctx) {
     '--lib', 'ESNext,DOM',
     '--ignoreConfig'
   ];
+  
+  // If no synthetic config is used, we have to pass files via CLI, but --build/-p is safer.
+  // We assume filesAbs are handled elsewhere if using -p.
+  if (filesAbs && filesAbs.length > 0 && !config.usingSyntheticConfig) {
+    commonArgs.unshift(...filesAbs);
+  }
 
   // Robust Emission Strategy: Avoid 'bundler' or 'node10' resolution
   // We use NodeNext to ensure compatibility with modern Bun/Deno and fix deprecations.
@@ -433,7 +432,7 @@ module.exports = {
   resolveManifest,
   resolveOwningEntryByFile,
   buildReconstructedSource,
-  buildRuntimeCommand,
+  buildBatchTscCommand,
   runExternalCommand,
   detectLintStrategy,
   buildLintCommand,
@@ -448,5 +447,5 @@ module.exports = {
   buildSyntheticConfig,
   buildSyntheticConfigPath,
   isInternalSubModule,
-  getBundlerCommand
+  buildBatchBundlerCommand
 };
