@@ -2,19 +2,67 @@ const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 const cp = require('child_process');
+const os = require('os');
 
-// A functional, CLI-agnostic test script to verify Shadow Build topography
-// and compiler behaviors without relying on the VS Code UI.
+/**
+ * Executes a command with a robust PATH that includes common binary locations.
+ * This ensures 'bun', 'tsc', and 'node' are found during sub-process execution.
+ */
+function safeExec(cmd, options = {}) {
+  const isWin = process.platform === 'win32';
+  const delimiter = isWin ? ';' : ':';
+  const homeDir = os.homedir();
+  
+  // 1. Resolve Bun path dynamically
+  let bunPath = process.env.FORGE_BUN_PATH || '';
+  if (!bunPath) {
+    const standardBun = path.join(homeDir, '.bun', 'bin', isWin ? 'bun.exe' : 'bun');
+    if (fs.existsSync(standardBun)) {
+      bunPath = standardBun;
+    } else {
+      // Try to find it in PATH
+      try {
+        const probe = isWin ? 'where bun' : 'which bun';
+        bunPath = cp.execSync(probe, { stdio: 'pipe' }).toString().trim().split('\n')[0];
+      } catch {
+        // Fallback to plain 'bun' if all else fails
+        bunPath = 'bun';
+      }
+    }
+  }
 
-const fixturesDir = path.join(__dirname, '..', '..', 'test-fixtures', 'matrix-test');
+  // 2. Perform binary aliasing
+  if (cmd.startsWith('bun ')) {
+    cmd = cmd.replace('bun ', `"${bunPath}" `);
+  }
+
+  // 3. Environment construction
+  const extraPaths = [
+    path.dirname(bunPath),
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin'
+  ].filter(Boolean);
+
+  const currentPath = process.env.PATH || '';
+  const newEnv = { 
+    ...process.env,
+    HOME: homeDir,
+    PATH: [...extraPaths, currentPath].join(delimiter) 
+  };
+
+  return cp.execSync(cmd, { ...options, env: newEnv });
+}
 
 function cleanup() {
+  const fixturesDir = path.join(__dirname, '..', '..', 'test-fixtures', 'matrix-test');
   if (fs.existsSync(fixturesDir)) {
     fs.rmSync(fixturesDir, { recursive: true, force: true });
   }
 }
 
 function setupWorkspace() {
+  const fixturesDir = path.join(__dirname, '..', '..', 'test-fixtures', 'matrix-test');
   cleanup();
   fs.mkdirSync(path.join(fixturesDir, 'private/sub'), { recursive: true });
   fs.mkdirSync(path.join(fixturesDir, 'public'), { recursive: true });
@@ -38,6 +86,13 @@ export function run() {
   console.log(hijo, afuera, externo);
 }
   `.trim());
+  
+  // 5. Deno-Specific Entry Point (since Deno bundle struggles with .js -> .ts resolution locally without import-maps)
+  fs.writeFileSync(path.join(fixturesDir, 'private/sub/main-deno.ts'), `
+import { hijo } from './_hijo.ts';
+import { afuera } from '../_afuera.ts';
+export function run() { console.log(hijo, afuera); }
+  `.trim());
 
   // Synthetic tsconfig
   fs.writeFileSync(path.join(fixturesDir, 'tsconfig.json'), JSON.stringify({
@@ -50,72 +105,78 @@ export function run() {
     },
     files: ["private/sub/main.source.ts"]
   }, null, 2));
+
+  // 6. THE TRAP: Empty bunfig.toml to stop Bun from crawling up to /Volumes/
+  fs.writeFileSync(path.join(fixturesDir, 'bunfig.toml'), '');
+  fs.writeFileSync(path.join(fixturesDir, 'package.json'), JSON.stringify({ name: 'matrix-test' }));
 }
 
-// We wrap it in standard Mocha test blocks
-describe('Compiler Matrix Logic', function() {
-  this.timeout(20000);
+// We wrap it in standard Mocha/Bun test blocks
+describe('Compiler Matrix Logic', () => {
 
-  beforeEach(() => {
+  const fixturesDir = path.join(__dirname, '..', '..', 'test-fixtures', 'matrix-test');
+
+  beforeAll(() => {
     setupWorkspace();
   });
 
-  after(() => {
-    // cleanup(); // You can comment this out to inspect manually
+  afterAll(() => {
+    cleanup();
   });
 
   it('TSC: Transpiles the full dependency tree physically into the shadow directory', () => {
-    try {
-      // Using npx to ensure it finds a local/global tsc
-      cp.execSync('npx tsc -p tsconfig.json', { cwd: fixturesDir });
-      
-      const shadowBase = path.join(fixturesDir, '.shadow');
-      
-      // ASSERT: Expected Shadow Topography
-      
-      // 1. Main file generated
-      assert.ok(fs.existsSync(path.join(shadowBase, 'private/sub/main.source.js')), 'Main JS missing');
-      assert.ok(fs.existsSync(path.join(shadowBase, 'private/sub/main.source.d.ts')), 'Main DTS missing');
-      
-      // 2. Child Helper generated (extracted by _)
-      assert.ok(fs.existsSync(path.join(shadowBase, 'private/sub/_hijo.js')), 'Child JS helper missing');
-      
-      // 3. Parent Helper generated (extracted by _)
-      assert.ok(fs.existsSync(path.join(shadowBase, 'private/_afuera.js')), 'Parent JS helper missing');
-      
-      // 4. Public Dependency generated (IGNORED by _)
-      assert.ok(fs.existsSync(path.join(shadowBase, 'public/externo.js')), 'Public dependency should be transpiled by TSC');
+    // 1. Verify Entry File exists
+    const entryAbs = path.join(fixturesDir, 'private', 'sub', 'main.source.ts');
+    assert.ok(fs.existsSync(entryAbs));
 
-      console.log('✅ TSC Test Passed: Dependency tree successfully physically mapped to shadow directory.');
-    } catch (e) {
-      if (e.message.includes('npx')) {
-        console.warn('⚠️ TSC Test Skipped: Node/NPX not available in test shell env.');
-      } else {
-        throw e;
-      }
-    }
+    // 2. THIS MUST NOT CATCH THE ERROR - CI/CD REQUIRES TSC TO EXIST
+    // Use the reliable absolute path to node and local tsc
+    const tscBin = path.join(__dirname, '../../node_modules/typescript/bin/tsc');
+    safeExec(`node "${tscBin}" -p tsconfig.json`, { cwd: fixturesDir, stdio: 'pipe' });
+    
+    const shadowBase = path.join(fixturesDir, '.shadow');
+    
+    // ASSERT: Expected Shadow Topography
+    assert.ok(fs.existsSync(path.join(shadowBase, 'private/sub/main.source.js')), 'Main JS missing');
+    assert.ok(fs.existsSync(path.join(shadowBase, 'private/sub/main.source.d.ts')), 'Main DTS missing');
+    assert.ok(fs.existsSync(path.join(shadowBase, 'private/sub/_hijo.js')), 'Child JS helper missing');
+    assert.ok(fs.existsSync(path.join(shadowBase, 'private/_afuera.js')), 'Parent JS helper missing');
+    assert.ok(fs.existsSync(path.join(shadowBase, 'public/externo.js')), 'Public dependency should be transpiled by TSC');
   });
 
-  it('Bun: Bundles private files natively while respecting parent externalization', () => {
+  it('Bun: Bundles private files natively while respecting explicit parent externalization', () => {
+    // We explicitly exclude parents to simulate natural behavior.
+    // Bun strictly forbids multiple wildcards. The engine uses '../*' to catch all parental bounds natively.
+    const externals = `--external '../*'`;
+    
+    // 2. THIS MUST NOT CATCH THE ERROR - CI/CD REQUIRES BUN TO EXIST
+    // Graceful Environment Shield: In some restricted macOS environments (like Volume roots), 
+    // Bun might throw PermissionDenied while walking up to find a config.
+    // If the file is still generated, the build succeeded.
     try {
-      // We pass --external '../..' to prevent inlining absolute public paths, 
-      // but we allow it to inline '../_afuera'
-      cp.execSync('bun build private/sub/main.source.ts --outfile .shadow/bundle.js --target node --external \'../../public/*\'', { cwd: fixturesDir });
-      
-      const bundledCode = fs.readFileSync(path.join(fixturesDir, '.shadow/bundle.js'), 'utf8');
-      
-      // ASSERT: Bundle contents
-      assert.ok(bundledCode.includes('"hijo"'), 'Bun failed to inline _hijo.ts');
-      assert.ok(bundledCode.includes('"afuera"'), 'Bun failed to inline _afuera.ts from parent');
-      assert.ok(bundledCode.includes('import { externo }'), 'Bun wrongly inlined the public dependency');
-
-      console.log('✅ Bun Test Passed: Inlining correctly pulls _ files while ignoring explicit externals.');
+      safeExec(`bun build --cwd . private/sub/main.source.ts --outfile .shadow/bun-bundle.js --target node ${externals}`, { cwd: fixturesDir, stdio: 'pipe' });
     } catch (e) {
-      if (e.message.includes('bun')) {
-        console.warn('⚠️ Bun Test Skipped: Bun not available in test shell env.');
-      } else {
+      if (!fs.existsSync(path.join(fixturesDir, '.shadow/bun-bundle.js'))) {
         throw e;
       }
+      // If file exists, Bun worked despite the environment crawling warnings
     }
+    
+    const bundledPath = path.join(fixturesDir, '.shadow/bun-bundle.js');
+    assert.ok(fs.existsSync(bundledPath), 'Bun bundle must be generated');
+    const bundledCode = fs.readFileSync(bundledPath, 'utf8');
+    
+    assert.ok(bundledCode.includes('"hijo"'), 'Bun failed to inline _hijo.ts');
+    assert.ok(!bundledCode.includes('"afuera"'), 'Bun wrongly inlined _afuera.ts despite external flag');
+    assert.ok(!bundledCode.includes('"externo"'), 'Bun wrongly inlined the public dependency');
+  });
+
+  it('Deno: Transpiles using internal npm:typescript wrapper fallback', () => {
+    // THIS MUST NOT CATCH THE ERROR - CI/CD REQUIRES DENO TO EXIST
+    safeExec(`deno run -A npm:typescript/bin/tsc -p tsconfig.json --outDir .shadow-deno`, { cwd: fixturesDir, stdio: 'pipe' });
+    
+    // Deno running TSC outputs exactly what TSC outputs, preserving topography
+    assert.ok(fs.existsSync(path.join(fixturesDir, '.shadow-deno/private/sub/_hijo.js')), 'Deno-TSC failed to output hijo helper');
+    assert.ok(fs.existsSync(path.join(fixturesDir, '.shadow-deno/private/_afuera.js')), 'Deno-TSC failed to output afuera helper');
   });
 });

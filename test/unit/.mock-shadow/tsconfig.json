@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "outDir": "./",
+    "allowJs": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo"
+  },
+  "files": [
+    "../../../../../../../../../fake/root/src/main.source.ts"
+  ]
+}

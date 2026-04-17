@@ -12,6 +12,6 @@ export function runProcess(name: string) {
   return { info, status: externalValue };
 }
 
-// Internal privasss
+// Internal privatess
 const result = runProcess("TestRunner");
 console.log("Done:", result.status);

@@ -13,6 +13,7 @@ body?.appendChild(h1);
  * @param {ILoquesea2} op 
  */
 function test(el: HTMLElement,op: ILoquesea2) {
+    const x = 123;
     el.textContent = `Hola ${op.nombre}`;
     el.style.color = 'red';
 }
@@ -21,5 +22,5 @@ const config :ILoquesea2 = {
     edad:15
 };
 test(body,config)
-/** archivo XXXS */
+/** archivoss */
 export const hola:number=1;

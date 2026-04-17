@@ -1,4 +1,5 @@
 {
+  "$schema": "schemas/package.nls.schema.json",
   "ext.displayName": "Forge TypeLayer",
   "ext.description": "Autoría TS privada y publicación pública de JS + d.ts, con validación previa por lint y estrategias de emisión según runtime.",
   "cmd.toggleMode": "Forge TypeLayer: Alternar modo",

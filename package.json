@@ -4,6 +4,7 @@
   "description": "%ext.description%",
   "version": "1.0.1-alpha.10",
   "publisher": "tuadmin",
+  "license": "Apache-2.0",
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.95.0"
@@ -115,8 +116,11 @@
         },
         "forgeTypeLayer.lockSuffixes": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^\\.\\w[\\w.]*\\.m?ts$",
+            "patternErrorMessage": "Each suffix must start with '.' and end with '.ts' or '.mts' (e.g. '.source.ts', '.forge.mts'). JS output extensions (.js, .jsx, etc.) are not valid here — Forge handles the output mapping automatically."
           },
           "default": [
             ".f.ts",
@@ -126,7 +130,7 @@
             ".forge.mts",
             ".source.mts"
           ],
-          "description": "List of source file suffixes that trigger internal locking and artifact renaming."
+          "markdownDescription": "List of **source file suffixes** that trigger internal locking and artifact renaming. Each suffix must end with `.ts` or `.mts` — Forge automatically maps them to `.js`/`.mjs` + `.d.ts`/`.d.mts` on output.\n\nExamples: `.source.ts`, `.forge.ts`, `.f.ts`, `.source.mts`\n\n> ⚠️ Custom entries **must end in `.ts` or `.mts`**. Adding `.js` or other output extensions is a misconfiguration and will be rejected."
         },
         "forgeTypeLayer.addWatermark": {
           "type": "boolean",
@@ -139,18 +143,28 @@
           "description": "%cfg.reconstructSuffix%"
         }
       }
-    }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": "l10n/*.json",
+        "url": "./schemas/l10n.schema.json"
+      },
+      {
+        "fileMatch": "package.nls*.json",
+        "url": "./schemas/package.nls.schema.json"
+      }
+    ]
   },
   "scripts": {
-    "test:fast": "node --test test/unit/core.fast.test.js",
-    "test:bun": "bun test test/unit/",
-    "test:e2e": "node ./test/runTest.js",
-    "test": "npm run test:fast && npm run test:bun && npm run test:e2e",
     "dev:host": "node ./test/devHost.js",
-    "compile": "node -e \"console.log(\\'No build step required for runtime JS extension.\\')\"",
-    "package": "npx @vscode/vsce package",
-    "publish:vsce": "npx @vscode/vsce publish",
-    "publish:ovsx": "npx ovsx publish"
+    "compile": "node -e \"console.log('No build step required.')\"",
+    "test:audit": "bun test test/unit/integrity/",
+    "test:unit": "bun test --cwd . test/unit/*.test.js",
+    "test:e2e": "node ./test/runTest.js",
+    "test": "npm run test:audit && npm run test:unit && npm run test:e2e",
+    "package": "vsce package",
+    "publish:vsce": "vsce publish",
+    "publish:ovsx": "ovsx publish"
   },
   "dependencies": {
     "typescript": "^5.8.3"

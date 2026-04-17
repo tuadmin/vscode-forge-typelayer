@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Forge TypeLayer NLS Bundle",
+  "description": "Schema for package.nls.json metadata used in package.json placeholders.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "ext.displayName": { "type": "string" },
+    "ext.description": { "type": "string" },
+    "cmd.toggleMode": { "type": "string" },
+    "cmd.selectMode": { "type": "string" },
+    "cmd.emitCurrentFile": { "type": "string" },
+    "cmd.reconstruct": { "type": "string" },
+    "cmd.showSpec": { "type": "string" },
+    "cmd.showRuntimeInfo": { "type": "string" },
+    "cmd.doctorWorkspace": { "type": "string" },
+    "cfg.title": { "type": "string" },
+    "cfg.defaultMode": { "type": "string" },
+    "cfg.showNotifications": { "type": "string" },
+    "cfg.useWorkspaceTypescript": { "type": "string" },
+    "cfg.preferredRuntime": { "type": "string" },
+    "cfg.preLint": { "type": "string" },
+    "cfg.removeComments": { "type": "string" },
+    "cfg.target": { "type": "string" },
+    "cfg.entriesFile": { "type": "string" },
+    "cfg.reconstructSuffix": { "type": "string" }
+  },
+  "additionalProperties": false,
+  "required": [
+    "ext.displayName", "ext.description",
+    "cmd.toggleMode", "cmd.selectMode", "cmd.emitCurrentFile", "cmd.reconstruct", "cmd.showSpec", "cmd.showRuntimeInfo", "cmd.doctorWorkspace",
+    "cfg.title", "cfg.defaultMode", "cfg.showNotifications", "cfg.useWorkspaceTypescript", "cfg.preferredRuntime", "cfg.preLint", "cfg.removeComments", "cfg.target", "cfg.entriesFile", "cfg.reconstructSuffix"
+  ]
+}
